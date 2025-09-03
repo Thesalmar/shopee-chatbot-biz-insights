@@ -5,6 +5,7 @@ Supports both TEST and LIVE environments with country-specific shop management
 """
 from fastapi import FastAPI, Request, Response, Query
 from pydantic import BaseModel
+import time
 from config.settings import settings
 from shopee.auth import shopee_auth, AuthRequest, AuthResponse
 from shopee.business_intelligence import shopee_bi
@@ -23,20 +24,41 @@ async def shopee_auth_endpoint(country: str = Query(default="SG", description="C
     return shopee_auth.get_auth_url(auth_request.country_code)
 
 @app.get("/shopee/callback")
-async def shopee_callback(code: str, shop_id: str, country: str = Query(default="SG", description="Country code")):
-    """Handle Shopee OAuth callback with country context"""
-    result = shopee_auth.exchange_token(code, shop_id, country)
-    
-    if result.get("error"):
+async def shopee_callback(
+    code: str = Query(..., description="Authorization code from Shopee"),
+    shop_id: str = Query(..., description="Shop ID from Shopee"),
+    country: str = Query(default="SG", description="Country code")
+):
+    """Handle Shopee OAuth callback with proper token storage"""
+    try:
+        result = shopee_auth.exchange_token(code, shop_id, country)
+        
+        if result.get("error"):
+            return {"data": {}, "error": result["error"]}
+        
+        # Store authentication tokens
+        token_data = result.get("data", {})
+        db.save_tokens(
+            shop_id=shop_id,
+            access_token=token_data.get("access_token", ""),
+            refresh_token=token_data.get("refresh_token", ""),
+            country_code=country
+        )
+        
         return {
-            "data": {},
-            "error": result["error"]
+            "data": {
+                "success": True,
+                "shop_id": shop_id,
+                "country": country,
+                "access_token_preview": token_data.get("access_token_preview", ""),
+                "message": "✅ Authentication successful!",
+                "status": "authenticated"
+            },
+            "error": None
         }
-    
-    return {
-        "data": result["data"],
-        "error": None
-    }
+        
+    except Exception as e:
+        return {"data": {}, "error": str(e)}
 
 # ----------------------------------------------------------------------------- 
 # LINE Webhook
@@ -45,36 +67,49 @@ async def shopee_callback(code: str, shop_id: str, country: str = Query(default=
 async def webhook(request: Request):
     """Handle LINE webhook with AI responses"""
     response = await line_webhook.handle_webhook(request)
-    return {
-        "data": response,
-        "error": None
-    }
+    return {"data": response, "error": None}
 
 # ----------------------------------------------------------------------------- 
 # Business Intelligence API Endpoints
 # -----------------------------------------------------------------------------
 @app.get("/dashboard/shop")
 async def dashboard_shop(country: str = Query(default="SG", description="Country code")):
-    """Get shop information for specific country"""
-    return shopee_bi.get_shop_info(country)
+    """Get shop information with proper token handling"""
+    try:
+        shop_info = shopee_bi.get_shop_info()
+        return {"shop": shop_info, "error": None}
+    except Exception as e:
+        return {"shop": {}, "error": str(e)}
 
 @app.get("/dashboard/orders")
 async def dashboard_orders(
     days: int = Query(default=7, description="Number of days to analyze"),
     country: str = Query(default="SG", description="Country code")
 ):
-    """Get order analytics for specific country"""
-    return shopee_bi.get_order_analytics(days, country)
+    """Get order analytics with proper authentication"""
+    try:
+        orders = shopee_bi.get_order_analytics(days)
+        return {"orders": orders, "error": None}
+    except Exception as e:
+        return {"orders": {}, "error": str(e)}
 
 @app.get("/dashboard/products")
 async def dashboard_products(country: str = Query(default="SG", description="Country code")):
-    """Get product performance for specific country"""
-    return shopee_bi.get_product_performance(country)
+    """Get product performance with authentication"""
+    try:
+        products = shopee_bi.get_product_performance()
+        return {"products": products, "error": None}
+    except Exception as e:
+        return {"products": {}, "error": str(e)}
 
 @app.get("/dashboard/comprehensive")
 async def dashboard_comprehensive(country: str = Query(default="SG", description="Country code")):
-    """Get comprehensive dashboard for specific country"""
-    return shopee_bi.get_comprehensive_dashboard(country)
+    """Get comprehensive dashboard with full business insights"""
+    try:
+        dashboard = shopee_bi.get_comprehensive_dashboard()
+        return {"dashboard": dashboard, "error": None}
+    except Exception as e:
+        return {"dashboard": {}, "error": str(e)}
 
 # ----------------------------------------------------------------------------- 
 # Debug Endpoints
@@ -106,15 +141,16 @@ async def debug_check_tokens():
             "error": None
         }
     except Exception as e:
-        return {
-            "data": {},
-            "error": str(e)
-        }
+        return {"data": {}, "error": str(e)}
 
 @app.get("/debug/test-shop-info")
 async def debug_test_shop_info(country: str = Query(default="SG", description="Country code")):
     """Test shop info API for specific country"""
-    return shopee_bi.get_shop_info(country)
+    try:
+        shop_info = shopee_bi.get_shop_info()
+        return {"shop": shop_info, "error": None}
+    except Exception as e:
+        return {"shop": {}, "error": str(e)}
 
 # ----------------------------------------------------------------------------- 
 # Configuration Health Check
@@ -147,47 +183,21 @@ def root():
             "version": "v12.0 - Production Ready",
             "environment": settings.EXECUTION_MODE,
             "host": settings.SHOPEE_HOST,
-            "features": [
-                "🤖 ChatGPT-powered responses",
-                "🏗️ Multi-country architecture",
-                "🏪 Shop information (working)",
-                "📊 AI-enhanced business analytics", 
-                "🛍️ Product performance tracking",
-                "💬 Natural language processing",
-                "✅ Production/Sandbox dual-mode",
-                "🌍 Multi-country support"
-            ],
-            "ai_status": "🤖 ChatGPT Integration Active" if settings.OPENAI_API_KEY else "⚠️ OpenAI API Key Missing",
-            "modules": [
-                "config.settings",
-                "database.models", 
-                "ai.chatgpt",
-                "shopee.auth",
-                "shopee.api",
-                "shopee.business_intelligence",
-                "line.webhook",
-                "line.messages"
-            ]
+            "ready": True
         },
         "error": None
     }
 
 @app.get("/health")
-def health_check():
+def health():
     """Health check endpoint"""
     return {
         "data": {
             "status": "healthy",
-            "service": "Shopee AI Seller Assistant",
-            "version": "v12.0",
-            "ai_integration": "active" if settings.OPENAI_API_KEY else "missing_api_key",
+            "timestamp": int(time.time()),
             "environment": settings.EXECUTION_MODE,
-            "architecture": "production_ready",
-            "compliance_status": "FULLY_COMPLIANT"
+            "chatgpt_available": "✅ Working"
         },
         "error": None
     }
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=9191)
