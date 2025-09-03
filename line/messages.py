@@ -1,5 +1,5 @@
-import time
 from typing import Dict, Any
+import time
 from ai.chatgpt import chatgpt
 from shopee.business_intelligence import shopee_bi
 from database.models import db

@@ -21,7 +21,7 @@ class ChatGPTIntegration:
                 # Set the API key
                 openai.api_key = self.api_key
                 
-                # Initialize client with minimal parameters
+                # Initialize client with minimal parameters - compatible with OpenAI v1.0+
                 self.client = openai.OpenAI(api_key=self.api_key)
                 self.is_available = True
                 print("✅ ChatGPT integration initialized successfully")
@@ -206,7 +206,6 @@ try:
     chatgpt = ChatGPTIntegration()
 except Exception as e:
     print(f"❌ Failed to initialize ChatGPT integration: {e}")
-    print("🔄 Creating fallback instance...")
     
     # Create a minimal fallback instance
     class FallbackChatGPT:
@@ -214,6 +213,9 @@ except Exception as e:
             self.is_available = False
         
         def generate_response(self, user_id: str, message: str, shop_data: Dict[str, Any] = None, business_data: Dict[str, Any] = None) -> str:
-            return ChatGPTIntegration().get_fallback_response(self, message)
+            return self.get_fallback_response(message)
+        
+        def get_fallback_response(self, message: str) -> str:
+            return ChatGPTIntegration().get_fallback_response(message)
     
     chatgpt = FallbackChatGPT()
