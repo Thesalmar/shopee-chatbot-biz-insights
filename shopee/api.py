@@ -23,7 +23,7 @@ class APIResponse(BaseModel):
 
 class ShopeeAPI:
     def __init__(self):
- self.host = settings.SHOPEE_HOST
+        self.host = settings.SHOPEE_HOST
         self.partner_id = settings.SHOPEE_PARTNER_ID
         self.partner_key = settings.SHOPEE_PARTNER_KEY
         self.execution_mode = settings.EXECUTION_MODE
